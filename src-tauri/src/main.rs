@@ -4,7 +4,7 @@ use rodio::{Decoder, OutputStream, Sink};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::BufReader;
+use std::io::{BufReader, Read};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -26,7 +26,7 @@ struct ScheduleTask {
     enabled: bool,
 }
 
-// 应用状态 - 简化版，移除非线程安全的字段
+// 应用状态
 struct AppState {
     tasks: HashMap<String, ScheduleTask>,
     audio_dir: PathBuf,
@@ -150,7 +150,7 @@ async fn delete_task(
     Ok(())
 }
 
-// 播放音频 - 在新线程中播放，不存储状态
+// 播放音频
 #[tauri::command]
 fn play_audio(audio_dir: String, filename: String) -> Result<(), String> {
     let audio_path = PathBuf::from(&audio_dir).join(&filename);
@@ -161,15 +161,13 @@ fn play_audio(audio_dir: String, filename: String) -> Result<(), String> {
 
     std::thread::spawn(move || {
         if let Ok(file) = File::open(&audio_path) {
-            if let Ok(reader) = BufReader::new(file).try_into() {
+            let reader = BufReader::new(file);
+            if let Ok(source) = Decoder::new(BufReader::new(File::open(&audio_path).unwrap())) {
                 if let Ok((_stream, stream_handle)) = OutputStream::try_default() {
                     if let Ok(sink) = Sink::try_new(&stream_handle) {
-                        if let Ok(source) = Decoder::new(reader) {
-                            sink.append(source);
-                            sink.play();
-                            // 等待播放完成
-                            sink.sleep_until_end();
-                        }
+                        sink.append(source);
+                        sink.play();
+                        sink.sleep_until_end();
                     }
                 }
             }
@@ -182,7 +180,6 @@ fn play_audio(audio_dir: String, filename: String) -> Result<(), String> {
 // 停止播放
 #[tauri::command]
 fn stop_audio() -> Result<(), String> {
-    // 由于音频播放在新线程中，这里暂时不做处理
     Ok(())
 }
 
@@ -258,17 +255,28 @@ async fn main() {
         start_web_server(web_state).await;
     });
 
-    // 启动定时调度器
+    // 启动定时调度器 - 使用正确的异步API
     let scheduler_state = app_state.clone();
     tokio::spawn(async move {
-        let mut sched = JobScheduler::new();
+        match JobScheduler::new().await {
+            Ok(sched) => {
+                let job = Job::new("0 * * * * *", |_uuid, _l| {
+                    println!("定时任务检查运行中...");
+                }).unwrap();
 
-        let job = Job::new("0 * * * * *", |_uuid, _l| {
-            println!("定时任务检查运行中...");
-        }).unwrap();
+                if let Err(e) = sched.add(job).await {
+                    eprintln!("Failed to add job: {}", e);
+                    return;
+                }
 
-        sched.add(job).await.unwrap();
-        sched.start().await.unwrap();
+                if let Err(e) = sched.start().await {
+                    eprintln!("Failed to start scheduler: {}", e);
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to create scheduler: {}", e);
+            }
+        }
     });
 
     tauri::Builder::default()
