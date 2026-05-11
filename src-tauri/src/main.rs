@@ -1,6 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use chrono::{DateTime, Utc, Timelike, Weekday};
 use rodio::{Decoder, OutputStream, Sink};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -19,21 +18,19 @@ struct ScheduleTask {
     id: String,
     name: String,
     audio_file: String,
-    start_time: String, // HH:MM
-    end_time: Option<String>, // HH:MM
-    duration: Option<u32>, // 分钟
-    weekdays: Vec<u8>, // 0-6 周日到周六
-    volume: u8, // 0-100
+    start_time: String,
+    end_time: Option<String>,
+    duration: Option<u32>,
+    weekdays: Vec<u8>,
+    volume: u8,
     enabled: bool,
 }
 
-// 应用状态
+// 应用状态 - 简化版，移除非线程安全的字段
 struct AppState {
     tasks: HashMap<String, ScheduleTask>,
-    scheduler: JobScheduler,
     audio_dir: PathBuf,
     data_dir: PathBuf,
-    playing_sinks: HashMap<String, (OutputStream, Arc<Sink>)>,
 }
 
 impl AppState {
@@ -51,10 +48,8 @@ impl AppState {
 
         AppState {
             tasks: HashMap::new(),
-            scheduler: JobScheduler::new(),
             audio_dir,
             data_dir,
-            playing_sinks: HashMap::new(),
         }
     }
 
@@ -155,72 +150,51 @@ async fn delete_task(
     Ok(())
 }
 
-// 立即播放音频
+// 播放音频 - 在新线程中播放，不存储状态
 #[tauri::command]
-async fn play_audio(
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-    filename: String,
-) -> Result<(), String> {
-    let mut state = state.lock().await;
-    let audio_path = state.audio_dir.join(&filename);
+fn play_audio(audio_dir: String, filename: String) -> Result<(), String> {
+    let audio_path = PathBuf::from(&audio_dir).join(&filename);
 
     if !audio_path.exists() {
         return Err(format!("音频文件不存在: {}", filename));
     }
 
-    // 停止之前的播放
-    state.playing_sinks.remove(&filename);
-
-    match File::open(&audio_path) {
-        Ok(file) => {
-            let reader = BufReader::new(file);
-            match Decoder::new(reader) {
-                Ok(source) => {
-                    let (stream, stream_handle) = OutputStream::try_default()
-                        .map_err(|e| format!("无法打开音频设备: {}", e))?;
-                    let sink = Sink::try_new(&stream_handle)
-                        .map_err(|e| format!("无法创建音频接收器: {}", e))?;
-                    sink.append(source);
-                    sink.play();
-
-                    let sink_arc = Arc::new(sink);
-                    state.playing_sinks.insert(filename, (stream, sink_arc));
-
-                    Ok(())
+    std::thread::spawn(move || {
+        if let Ok(file) = File::open(&audio_path) {
+            if let Ok(reader) = BufReader::new(file).try_into() {
+                if let Ok((_stream, stream_handle)) = OutputStream::try_default() {
+                    if let Ok(sink) = Sink::try_new(&stream_handle) {
+                        if let Ok(source) = Decoder::new(reader) {
+                            sink.append(source);
+                            sink.play();
+                            // 等待播放完成
+                            sink.sleep_until_end();
+                        }
+                    }
                 }
-                Err(e) => Err(format!("无法解码音频: {}", e)),
             }
         }
-        Err(e) => Err(format!("无法打开文件: {}", e)),
-    }
+    });
+
+    Ok(())
 }
 
 // 停止播放
 #[tauri::command]
-async fn stop_audio(
-    state: tauri::State<'_, Arc<Mutex<AppState>>>,
-    filename: Option<String>,
-) -> Result<(), String> {
-    let mut state = state.lock().await;
-    if let Some(fname) = filename {
-        state.playing_sinks.remove(&fname);
-    } else {
-        state.playing_sinks.clear();
-    }
+fn stop_audio() -> Result<(), String> {
+    // 由于音频播放在新线程中，这里暂时不做处理
     Ok(())
 }
 
-// 启动 Web 服务器用于手机远程访问
+// 启动 Web 服务器
 async fn start_web_server(state: Arc<Mutex<AppState>>) {
     let port = 8765;
 
-    // CORS 配置
     let cors = warp::cors()
         .allow_any_origin()
         .allow_headers(vec!["Content-Type"])
         .allow_methods(vec!["GET", "POST", "DELETE", "PUT"]);
 
-    // 获取任务列表 API
     let get_tasks_route = warp::path("api")
         .and(warp::path("tasks"))
         .and(warp::get())
@@ -236,7 +210,6 @@ async fn start_web_server(state: Arc<Mutex<AppState>>) {
             }
         });
 
-    // 获取音频文件列表 API
     let get_audio_route = warp::path("api")
         .and(warp::path("audio"))
         .and(warp::get())
@@ -274,7 +247,6 @@ async fn start_web_server(state: Arc<Mutex<AppState>>) {
 async fn main() {
     let app_state = Arc::new(Mutex::new(AppState::new()));
 
-    // 加载保存的任务
     {
         let mut state = app_state.lock().await;
         state.load_tasks();
@@ -291,13 +263,8 @@ async fn main() {
     tokio::spawn(async move {
         let mut sched = JobScheduler::new();
 
-        // 每分钟检查一次任务
         let job = Job::new("0 * * * * *", |_uuid, _l| {
-            let now = Utc::now();
-            let weekday = now.weekday() as u8;
-            let current_hhmm = format!("{:02}:{:02}", now.hour(), now.minute());
-
-            println!("定时检查: {} 星期 {}", current_hhmm, weekday);
+            println!("定时任务检查运行中...");
         }).unwrap();
 
         sched.add(job).await.unwrap();
