@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use chrono::{DateTime, Local, Timelike, Weekday};
+use chrono::{DateTime, Utc, Timelike, Weekday};
 use rodio::{Decoder, OutputStream, Sink};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -293,7 +293,7 @@ async fn main() {
 
         // 每分钟检查一次任务
         let job = Job::new("0 * * * * *", |_uuid, _l| {
-            let now = Local::now();
+            let now = Utc::now();
             let weekday = now.weekday() as u8;
             let current_hhmm = format!("{:02}:{:02}", now.hour(), now.minute());
 
