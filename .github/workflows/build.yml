@@ -28,6 +28,9 @@ jobs:
       - name: 安装前端依赖
         run: npm ci
 
+      - name: 安装 Tauri CLI
+        run: npm install -D @tauri-apps/cli
+
       - name: 构建前端
         run: npm run build
 
@@ -35,3 +38,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "音频定时播放器 v__VERSION__"
+          releaseDraft: false
+          prerelease: false
