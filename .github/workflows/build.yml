@@ -1,86 +1,60 @@
-name: 构建发布
-
+name: 多平台构建
 on:
   push:
+    branches: [ main, master ]
     tags:
-      - "v*"
-    branches:
-      - "v*"
-  workflow_dispatch:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # 支持手动触发
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [windows-latest]
+        platform: [macos-latest, ubuntu-20.04, windows-latest]
 
+    runs-on: ${{ matrix.platform }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 安装 Node.js 20
+      - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: 20
+          cache: 'npm'
 
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: 缓存 Rust 依赖
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            src-tauri/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: 缓存 Node.js 依赖
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.npm
-            **/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: 安装前端依赖（重试3次）
+      - name: 安装依赖 (Ubuntu)
+        if: matrix.platform == 'ubuntu-20.04'
         run: |
-          npm install || npm install || npm install
-        shell: bash
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.0-dev libwebkit2gtk-4.1-dev \
+            libappindicator3-dev librsvg2-dev patchelf
 
-      - name: 安装 Tauri CLI
-        run: npm install -D @tauri-apps/cli || npm install -g @tauri-apps/cli
-
-      - name: 构建前端
-        run: npm run build
+      - name: 安装 npm 依赖
+        run: npm ci
 
       - name: 构建 Tauri 应用
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          releaseDraft: false
-          prerelease: false
-          tagName: v1.5.1
-          releaseName: 音频定时播放器 v1.5.1
+          tagName: app-v__VERSION__
+          releaseName: '音频定时播放器 v__VERSION__'
           releaseBody: |
-            # 音频定时播放器 v1.5.1
-            
-            ✅ Windows exe 安装包
-            - 自定义音频选择
-            - 定时播放设置
-            - 系统托盘后台运行
+            ## 📦 音频定时播放器 v__VERSION__
 
-      - name: 上传构建产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-exe-installer
-          path: target/release/bundle/*.exe
-          retention-days: 30
+            多平台自动构建完成！
+
+            | 平台 | 文件 |
+            |------|------|
+            | 🪟 Windows | .exe 安装包 |
+            | 🍎 macOS | .dmg 磁盘镜像 |
+            | 🐧 Linux | .deb 安装包 |
+          releaseDraft: true
+          prerelease: false
