@@ -1,12 +1,12 @@
 name: 多平台构建
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, v1.5.1-branch ]
     tags:
       - 'v*'
   pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:  # 支持手动触发
+    branches: [ main, master, v1.5.1-branch ]
+  workflow_dispatch:
 
 jobs:
   build:
