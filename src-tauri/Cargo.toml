@@ -1,7 +1,7 @@
 [package]
 name = "audio-scheduler"
-version = "1.0.0"
-description = "音频定时播放系统 - 支持多定时任务、手机远程控制"
+version = "1.5.1"
+description = "音频定时播放器"
 authors = ["you"]
 license = ""
 repository = ""
@@ -14,13 +14,6 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rodio = "0.17"
-tokio = { version = "1", features = ["full"] }
-tokio-cron-scheduler = "0.10"
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v4", "serde"] }
-warp = "0.3"
-local-ip-address = "0.5"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem
