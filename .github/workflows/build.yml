@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - "v*"
   workflow_dispatch:
 
 jobs:
@@ -41,3 +43,19 @@ jobs:
         with:
           releaseDraft: false
           prerelease: false
+          tagName: v1.5.1
+          releaseName: 音频定时播放器 v1.5.1
+          releaseBody: |
+            # 音频定时播放器 v1.5.1
+            
+            ✅ Windows exe 安装包
+            - 自定义音频选择
+            - 定时播放设置
+            - 系统托盘后台运行
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe-installer
+          path: target/release/bundle/*.exe
+          retention-days: 30
